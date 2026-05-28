@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SQLdod - 工作区</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div class="workspace">
+    <!-- 顶部导航 -->
+    <header class="top-bar">
+      <div class="top-left">
+        <span class="logo">🗄️ SQLdod</span>
+        <span class="conn-info">
+          <%= connection.name %> (<%= connection.type.toUpperCase() %>)
+        </span>
+      </div>
+      <div class="top-right">
+        <button class="btn btn-sm" onclick="location.href='/'">断开连接</button>
+      </div>
+    </header>
+
+    <div class="main-area">
+      <!-- 左侧边栏 -->
+      <aside class="sidebar">
+        <div class="sidebar-section">
+          <div class="section-header">
+            <h3>数据库</h3>
+            <div class="header-actions">
+              <button class="btn-icon" onclick="showCreateDatabase()" title="新建数据库">➕</button>
+              <button class="btn-icon" onclick="refreshDatabases()" title="刷新">🔄</button>
+            </div>
+          </div>
+          <div class="db-list" id="databaseList">
+            <% databases.forEach(db => { %>
+              <div class="db-item <%= db === currentDb ? 'active' : '' %>" onclick="selectDatabase('<%= db %>')" data-db="<%= db %>">
+                <span class="db-icon">📁</span>
+                <span class="db-name"><%= db %></span>
+                <% if (connection.type !== 'sqlite') { %>
+                  <button class="btn btn-danger btn-xs" onclick="event.stopPropagation(); confirmDropDatabase('<%= db %>')" title="删除数据库" style="margin-left:auto;">删除</button>
+                <% } %>
+              </div>
+            <% }); %>
+          </div>
+        </div>
+
+        <div class="sidebar-section">
+          <div class="section-header">
+            <h3>数据表</h3>
+            <div class="header-actions">
+              <button class="btn-icon" onclick="showCreateTable()" title="新建表">➕</button>
+              <button class="btn-icon" onclick="refreshTables()" title="刷新">🔄</button>
+            </div>
+          </div>
+          <div class="table-list" id="tableList">
+            <% tables.forEach(t => { %>
+              <div class="table-item-group">
+                <div class="table-item" onclick="selectTable('<%= t %>')" data-table="<%= t %>">
+                  <span class="table-icon">📋</span>
+                  <span class="table-name"><%= t %></span>
+                  <div class="table-actions">
+                    <button class="btn-icon-sm" onclick="event.stopPropagation(); designTable('<%= t %>')" title="设计表">✏️</button>
+                    <button class="btn-icon-sm" onclick="event.stopPropagation(); toggleTableSubmenu(event, '<%= t %>')" title="更多">⋯</button>
+                    <button class="btn-icon-sm" onclick="event.stopPropagation(); confirmDropTable('<%= t %>')" title="删除表">🗑️</button>
+                  </div>
+                </div>
+                <div class="table-submenu" id="submenu-<%= t %>" style="display:none;">
+                  <button class="table-submenu-btn" onclick="event.stopPropagation(); showFKManager('<%= t %>')">🔗 外键管理</button>
+                  <button class="table-submenu-btn" onclick="event.stopPropagation(); showTriggerManager('<%= t %>')">⚡ 触发器管理</button>
+                </div>
+              </div>
+            <% }); %>
+          </div>
+        </div>
+
+        <div class="sidebar-section">
+          <div class="section-header">
+            <h3>工具</h3>
+          </div>
+          <div class="sidebar-tools">
+            <button class="sidebar-tool-btn" onclick="showSaveQuery()">💾 保存查询</button>
+          </div>
+        </div>
+      </aside>
+
+      <!-- 右侧主内容区 -->
+      <main class="content">
+        <div class="content-tabs">
+          <button class="ctab-btn active" onclick="switchContentTab('data')">表数据</button>
+          <button class="ctab-btn" onclick="switchContentTab('query')">SQL 查询</button>
+          <button class="ctab-btn" onclick="switchContentTab('export')">导入导出</button>
+        </div>
+
+        <!-- 表数据面板 -->
+        <div id="content-data" class="content-panel active">
+          <div id="dataArea">
+            <p class="placeholder-text">请选择一个数据表</p>
+          </div>
+        </div>
+
+        <!-- SQL 查询面板 -->
+        <div id="content-query" class="content-panel">
+          <div class="query-panel">
+            <div class="query-toolbar">
+              <button class="btn btn-primary btn-sm" onclick="executeQuery()">执行 (Ctrl+Enter)</button>
+              <button class="btn btn-sm" onclick="executeBatch()">批量执行</button>
+              <button class="btn btn-sm" onclick="showSaveQuery()">保存查询</button>
+              <button class="btn btn-sm" onclick="loadSavedQueries()">已保存查询</button>
+            </div>
+            <textarea id="sqlEditor" class="sql-editor" placeholder="在此输入 SQL 语句...&#10;&#10;支持多条语句，用分号分隔"></textarea>
+            <div id="queryResult" class="query-result"></div>
+          </div>
+        </div>
+
+        <!-- 导入导出面板 -->
+        <div id="content-export" class="content-panel">
+          <div class="export-panel">
+            <!-- 目标选择（导出和导入共用） -->
+            <div class="export-section">
+              <h3>目标选择</h3>
+              <div class="form-row">
+                <div class="form-group" style="flex:1;">
+                  <label>目标数据库 <span style="color:#e53e3e;">*</span></label>
+                  <select id="ioTargetDb" class="form-control" onchange="onExportDbChange()">
+                    <option value="">-- 请选择数据库 --</option>
+                  </select>
+                </div>
+                <div class="form-group" style="flex:1;">
+                  <label>目标表 <span style="color:#999;">(可选，不选则导出整个库)</span></label>
+                  <select id="ioTargetTable" class="form-control">
+                    <option value="">-- 全部表 --</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <!-- 导出区域 -->
+            <div class="export-section">
+              <h3>导出</h3>
+              <div class="form-group">
+                <label>导出模式</label>
+                <select id="exportMode" class="form-control" style="margin-bottom:10px;">
+                  <option value="full">完整导出（带建表语句 + DROP TABLE）</option>
+                  <option value="dataOnly">仅数据导出（只有 INSERT 语句）</option>
+                </select>
+              </div>
+              <div class="export-actions">
+                <button class="btn btn-sm" onclick="doExportCSV()">导出为 CSV</button>
+                <button class="btn btn-sm btn-primary" onclick="doExportSQL()">导出为 SQL</button>
+              </div>
+              <div id="exportResult" class="import-result"></div>
+            </div>
+
+            <!-- 导入区域 -->
+            <div class="export-section">
+              <h3>导入</h3>
+              <div class="import-actions">
+                <div class="form-group" style="flex:1;">
+                  <label>选择文件（.csv 或 .sql）</label>
+                  <input type="file" id="importFile" accept=".csv,.sql" class="form-control">
+                </div>
+                <button class="btn btn-primary btn-sm" onclick="doImport()" style="margin-top:24px;">开始导入</button>
+              </div>
+              <div id="importResult" class="import-result"></div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- 新建数据库对话框 -->
+  <div id="createDatabaseModal" class="modal" style="display:none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>新建数据库</h3>
+        <button class="modal-close" onclick="closeModal('createDatabaseModal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>数据库名称</label>
+          <input type="text" id="newDbName" class="form-control" placeholder="输入数据库名称">
+        </div>
+        <% if (connection.type === 'mysql') { %>
+        <div class="form-group">
+          <label>字符集</label>
+          <select id="newDbCharset" class="form-control">
+            <option value="utf8mb4">utf8mb4</option>
+            <option value="utf8">utf8</option>
+            <option value="latin1">latin1</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>排序规则</label>
+          <select id="newDbCollation" class="form-control">
+            <option value="utf8mb4_general_ci">utf8mb4_general_ci</option>
+            <option value="utf8mb4_unicode_ci">utf8mb4_unicode_ci</option>
+          </select>
+        </div>
+        <% } %>
+        <button class="btn btn-primary" onclick="createDatabase()">创建</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 新建表对话框 -->
+  <div id="createTableModal" class="modal" style="display:none;">
+    <div class="modal-content modal-xl">
+      <div class="modal-header">
+        <h3>新建数据表</h3>
+        <button class="modal-close" onclick="closeModal('createTableModal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>表名</label>
+          <input type="text" id="newTableName" class="form-control" placeholder="输入表名">
+        </div>
+
+        <!-- 字段定义区域 -->
+        <div class="table-designer">
+          <div class="designer-header">
+            <span class="designer-col-order">排序</span>
+            <span class="designer-col-field">字段名</span>
+            <span class="designer-col-type">数据类型</span>
+            <span class="designer-col-len">长度</span>
+            <span class="designer-col-dec">小数</span>
+            <span class="designer-col-null">非空</span>
+            <span class="designer-col-pri">主键</span>
+            <span class="designer-col-auto">自增</span>
+            <span class="designer-col-def">默认值</span>
+            <span class="designer-col-comment">备注</span>
+            <span class="designer-col-action">操作</span>
+          </div>
+          <div id="columnRows" class="designer-rows">
+            <!-- 动态生成的列定义行 -->
+          </div>
+          <button class="btn btn-sm" onclick="addColumnRow()" style="margin: 10px 12px;">+ 添加字段</button>
+        </div>
+
+        <!-- 外键配置区域 -->
+        <div class="fk-section" style="margin-top:18px;">
+          <div class="fk-header">
+            <h4>外键</h4>
+            <button class="btn btn-sm" onclick="addForeignKeyRow()">+ 添加外键</button>
+          </div>
+          <div class="fk-designer">
+            <div class="fk-designer-header">
+              <span class="fk-col-field">字段名</span>
+              <span class="fk-col-ref-table">关联表</span>
+              <span class="fk-col-ref-field">关联字段</span>
+              <span class="fk-col-on-delete">删除规则</span>
+              <span class="fk-col-on-update">更新规则</span>
+              <span class="fk-col-action">操作</span>
+            </div>
+            <div id="foreignKeyRows" class="fk-designer-rows">
+              <!-- 动态生成的外键行 -->
+            </div>
+          </div>
+        </div>
+
+        <button class="btn btn-primary" onclick="createTable()" style="margin-top:18px;">创建表</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 设计表（修改表）对话框 -->
+  <div id="designTableModal" class="modal" style="display:none;">
+    <div class="modal-content modal-lg">
+      <div class="modal-header">
+        <h3>设计表 - <span id="designTableName"></span></h3>
+        <button class="modal-close" onclick="closeModal('designTableModal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="table-designer">
+          <div class="designer-header">
+            <span class="designer-col-field">字段名</span>
+            <span class="designer-col-type">数据类型</span>
+            <span class="designer-col-len">长度</span>
+            <span class="designer-col-dec">小数</span>
+            <span class="designer-col-null">非空</span>
+            <span class="designer-col-pri">主键</span>
+            <span class="designer-col-auto">自增</span>
+            <span class="designer-col-def">默认值</span>
+            <span class="designer-col-comment">备注</span>
+            <span class="designer-col-action">操作</span>
+          </div>
+          <div id="designColumnRows" class="designer-rows"></div>
+          <button class="btn btn-sm" onclick="addDesignColumnRow()" style="margin: 10px 12px;">+ 添加字段</button>
+        </div>
+        <button class="btn btn-primary" onclick="saveTableDesign()" style="margin-top:15px;">保存修改</button>
+        <div id="designMsg" style="margin-top:10px;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 添加/编辑数据行对话框 -->
+  <div id="editRowModal" class="modal" style="display:none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="editRowTitle">编辑数据</h3>
+        <button class="modal-close" onclick="closeModal('editRowModal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="editRowFields"></div>
+        <button class="btn btn-primary" onclick="saveRow()">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 保存查询对话框 -->
+  <div id="saveQueryModal" class="modal" style="display:none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>保存查询</h3>
+        <button class="modal-close" onclick="closeModal('saveQueryModal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>查询名称</label>
+          <input type="text" id="queryName" class="form-control" placeholder="输入查询名称">
+        </div>
+        <button class="btn btn-primary" onclick="saveQuery()">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 已保存查询列表对话框 -->
+  <div id="savedQueriesModal" class="modal" style="display:none;">
+    <div class="modal-content modal-lg">
+      <div class="modal-header">
+        <h3>已保存查询</h3>
+        <button class="modal-close" onclick="closeModal('savedQueriesModal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="savedQueriesList"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 确认对话框 -->
+  <div id="confirmModal" class="modal" style="display:none;">
+    <div class="modal-content modal-sm">
+      <div class="modal-header">
+        <h3 id="confirmTitle">确认操作</h3>
+        <button class="modal-close" onclick="closeModal('confirmModal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p id="confirmMessage"></p>
+        <div class="confirm-actions">
+          <button class="btn btn-danger" id="confirmOkBtn">确认</button>
+          <button class="btn" onclick="closeModal('confirmModal')">取消</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 外键管理对话框 -->
+  <div id="fkManagerModal" class="modal" style="display:none;">
+    <div class="modal-content modal-lg">
+      <div class="modal-header">
+        <h3>外键管理 - <span id="fkManagerTableName"></span></h3>
+        <button class="modal-close" onclick="closeModal('fkManagerModal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="fkManagerList" style="margin-bottom:16px;">
+          <p class="placeholder-text">加载中...</p>
+        </div>
+        <div class="fk-section" id="fkAddSection" style="display:none;">
+          <div class="fk-header"><h4>添加外键</h4></div>
+          <div class="fk-designer">
+            <div class="fk-designer-header">
+              <span class="fk-col-field">字段名</span>
+              <span class="fk-col-ref-table">关联表</span>
+              <span class="fk-col-ref-field">关联字段</span>
+              <span class="fk-col-on-delete">删除规则</span>
+              <span class="fk-col-on-update">更新规则</span>
+              <span class="fk-col-action">操作</span>
+            </div>
+            <div class="fk-designer-rows">
+              <div class="fk-designer-row" id="fkAddRow">
+                <span class="fk-col-field"><input type="text" class="form-control" id="fkAddColName" placeholder="本表字段名" style="width:100%;"></span>
+                <span class="fk-col-ref-table"><select class="form-control" id="fkAddRefTable" onchange="onFkAddRefTableChange()" style="width:100%;"><option value="">-- 选择表 --</option></select></span>
+                <span class="fk-col-ref-field"><select class="form-control" id="fkAddRefField" style="width:100%;"><option value="">-- 先选表 --</option></select></span>
+                <span class="fk-col-on-delete"><select class="form-control" id="fkAddOnDelete" style="width:100%;"><option value="CASCADE">CASCADE</option><option value="SET NULL">SET NULL</option><option value="RESTRICT">RESTRICT</option><option value="NO ACTION">NO ACTION</option></select></span>
+                <span class="fk-col-on-update"><select class="form-control" id="fkAddOnUpdate" style="width:100%;"><option value="CASCADE">CASCADE</option><option value="SET NULL">SET NULL</option><option value="RESTRICT">RESTRICT</option><option value="NO ACTION">NO ACTION</option></select></span>
+                <span class="fk-col-action"><button class="btn btn-sm btn-primary" onclick="addForeignKey()">添加</button></span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div style="margin-top:12px;">
+          <button class="btn btn-sm" onclick="document.getElementById('fkAddSection').style.display='block'; loadFkRefTables();">+ 添加外键</button>
+        </div>
+        <div id="fkManagerMsg" style="margin-top:10px;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 触发器管理对话框 -->
+  <div id="triggerManagerModal" class="modal" style="display:none;">
+    <div class="modal-content modal-lg">
+      <div class="modal-header">
+        <h3>触发器管理 - <span id="triggerManagerTableName"></span></h3>
+        <button class="modal-close" onclick="closeModal('triggerManagerModal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="triggerManagerList" style="margin-bottom:16px;">
+          <p class="placeholder-text">加载中...</p>
+        </div>
+        <div style="margin-top:12px;">
+          <button class="btn btn-sm btn-primary" onclick="showCreateTrigger()">+ 新建触发器</button>
+        </div>
+        <div id="triggerManagerMsg" style="margin-top:10px;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 触发器创建/编辑对话框 -->
+  <div id="triggerEditModal" class="modal" style="display:none;">
+    <div class="modal-content modal-lg">
+      <div class="modal-header">
+        <h3 id="triggerEditTitle">新建触发器</h3>
+        <button class="modal-close" onclick="closeModal('triggerEditModal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="triggerEditMode" value="create">
+        <input type="hidden" id="triggerEditOldName" value="">
+        <div class="form-group">
+          <label>触发器名称</label>
+          <input type="text" id="triggerName" class="form-control" placeholder="输入触发器名称">
+        </div>
+        <div class="form-group">
+          <label>触发时机</label>
+          <select id="triggerTiming" class="form-control">
+            <option value="BEFORE">BEFORE</option>
+            <option value="AFTER">AFTER</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>触发事件</label>
+          <select id="triggerEvent" class="form-control">
+            <option value="INSERT">INSERT</option>
+            <option value="UPDATE">UPDATE</option>
+            <option value="DELETE">DELETE</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>触发器 SQL 语句</label>
+          <textarea id="triggerBody" class="sql-editor" style="min-height:150px;" placeholder="BEGIN&#10;  -- 触发器逻辑&#10;END"></textarea>
+        </div>
+        <button class="btn btn-primary" onclick="saveTrigger()">保存</button>
+        <button class="btn" onclick="closeModal('triggerEditModal')">取消</button>
+        <div id="triggerEditMsg" style="margin-top:10px;"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const connType = '<%= connection.type %>';
+    const currentDb = '<%= currentDb %>';
+    let selectedTable = null;
+    let editingRowData = null;
+    let editingPrimaryKey = null;
+    let editingPrimaryValue = null;
+    let designTableName = null;
+  </script>
+  <script src="/js/main.js"></script>
+  <script src="/js/workspace.js"></script>
+</body>
+</html>

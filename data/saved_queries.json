@@ -1,0 +1,9 @@
+[
+  {
+    "id": "1779947615213",
+    "name": "accounts月度查询",
+    "sql": "SELECT\n  SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END) AS 4月总收入,\n  SUM(CASE WHEN amount < 0 THEN amount ELSE 0 END) AS 4月总支出,\n  SUM(amount) AS 4月总结余\nFROM accounts\nWHERE date BETWEEN '2026-04-01' AND '2026-04-30';",
+    "database": "dakuo",
+    "createdAt": "2026-05-28T05:53:35.213Z"
+  }
+]
