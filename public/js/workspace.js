@@ -98,12 +98,25 @@ async function refreshDatabases() {
       renderDatabaseList(result.databases);
     }
   } catch (err) {
-    alert('刷新失败');
+    alert('刷新数据库列表失败: ' + err.message);
   }
 }
 
 async function refreshTables() {
-  if (!currentDatabase) return;
+  if (!currentDatabase) {
+    // 尝试获取当前库
+    try {
+      const resp = await fetch('/database/list');
+      const result = await resp.json();
+      if (result.success && result.databases.length > 0) {
+        currentDatabase = result.databases[0];
+        await selectDatabase(currentDatabase);
+        return;
+      }
+    } catch (err) {}
+    alert('请先选择一个数据库');
+    return;
+  }
   try {
     const resp = await fetch('/connection/switch-database', {
       method: 'POST',
@@ -113,8 +126,12 @@ async function refreshTables() {
     const result = await resp.json();
     if (result.success) {
       renderTableList(result.tables);
+    } else {
+      alert('刷新表列表失败: ' + (result.error || '未知错误'));
     }
-  } catch (err) {}
+  } catch (err) {
+    alert('刷新表列表失败: ' + err.message);
+  }
 }
 
 function renderDatabaseList(databases) {
@@ -1020,23 +1037,29 @@ async function saveQuery() {
   }
 }
 
+let savedQueriesCache = [];
+
 async function loadSavedQueries() {
   try {
     const resp = await fetch('/query/saved');
     const result = await resp.json();
+    savedQueriesCache = result.queries || [];
     const list = document.getElementById('savedQueriesList');
+    document.getElementById('savedQueryEditArea').style.display = 'none';
 
-    if (!result.queries || result.queries.length === 0) {
+    if (!savedQueriesCache || savedQueriesCache.length === 0) {
       list.innerHTML = '<p class="empty-text">暂无保存的查询</p>';
     } else {
-      list.innerHTML = result.queries.map(q => `
-        <div class="saved-item">
-          <div class="saved-info">
-            <strong>${escapeHtml(q.name)}</strong>
-            <span class="saved-detail">${escapeHtml(q.sql.substring(0, 80))}...</span>
+      list.innerHTML = savedQueriesCache.map(q => `
+        <div class="saved-query-row">
+          <div class="saved-query-info">
+            <strong class="sq-name">${escapeHtml(q.name)}</strong>
+            <span class="sq-sql">${escapeHtml(q.sql.substring(0, 120))}${q.sql.length > 120 ? '...' : ''}</span>
+            <span class="sq-meta">${escapeHtml(q.database || '')} · ${q.createdAt ? q.createdAt.substring(0, 10) : ''}</span>
           </div>
-          <div class="saved-actions">
-            <button class="btn btn-sm btn-primary" onclick="useSavedQuery('${q.id}')">使用</button>
+          <div class="saved-query-actions">
+            <button class="btn btn-sm btn-primary" onclick="useSavedQuery('${q.id}')">执行</button>
+            <button class="btn btn-sm" onclick="editSavedQuery('${q.id}')">编辑</button>
             <button class="btn btn-sm btn-danger" onclick="deleteSavedQuery('${q.id}')">删除</button>
           </div>
         </div>
@@ -1049,23 +1072,180 @@ async function loadSavedQueries() {
 }
 
 function useSavedQuery(id) {
-  fetch('/query/saved').then(r => r.json()).then(result => {
-    const q = result.queries.find(q => q.id === id);
-    if (q) {
-      document.getElementById('sqlEditor').value = q.sql;
-      closeModal('savedQueriesModal');
-      switchContentTab('query');
+  const q = savedQueriesCache.find(q => q.id === id);
+  if (q) {
+    document.getElementById('sqlEditor').value = q.sql;
+    closeModal('savedQueriesModal');
+    switchContentTab('query');
+  }
+}
+
+function editSavedQuery(id) {
+  const q = savedQueriesCache.find(q => q.id === id);
+  if (!q) return;
+  document.getElementById('editQueryId').value = q.id;
+  document.getElementById('editQueryName').value = q.name;
+  document.getElementById('editQuerySql').value = q.sql;
+  document.getElementById('savedQueryEditArea').style.display = 'block';
+  document.getElementById('editQueryMsg').innerHTML = '';
+  // 滚动到编辑区域
+  document.getElementById('savedQueryEditArea').scrollIntoView({ behavior: 'smooth' });
+}
+
+function cancelEditQuery() {
+  document.getElementById('savedQueryEditArea').style.display = 'none';
+  document.getElementById('editQueryId').value = '';
+  document.getElementById('editQueryName').value = '';
+  document.getElementById('editQuerySql').value = '';
+  document.getElementById('editQueryMsg').innerHTML = '';
+}
+
+async function saveEditedQuery() {
+  const id = document.getElementById('editQueryId').value;
+  const name = document.getElementById('editQueryName').value.trim();
+  const sql = document.getElementById('editQuerySql').value.trim();
+  if (!name) { alert('请输入查询名称'); return; }
+  if (!sql) { alert('请输入 SQL 语句'); return; }
+
+  const msgDiv = document.getElementById('editQueryMsg');
+  msgDiv.innerHTML = '<div style="color:#888;">正在保存...</div>';
+
+  try {
+    const resp = await fetch('/query/update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, name, sql })
+    });
+    const result = await resp.json();
+    if (result.success) {
+      msgDiv.innerHTML = '<div class="alert alert-success">查询已更新</div>';
+      cancelEditQuery();
+      await loadSavedQueriesRef();
+    } else {
+      msgDiv.innerHTML = `<div class="alert alert-error">保存失败: ${result.error}</div>`;
     }
-  });
+  } catch (err) {
+    msgDiv.innerHTML = `<div class="alert alert-error">保存失败: ${err.message}</div>`;
+  }
+}
+
+async function saveAsNewQuery() {
+  const name = document.getElementById('editQueryName').value.trim();
+  const sql = document.getElementById('editQuerySql').value.trim();
+  if (!name) { alert('请输入查询名称'); return; }
+  if (!sql) { alert('请输入 SQL 语句'); return; }
+
+  const msgDiv = document.getElementById('editQueryMsg');
+  msgDiv.innerHTML = '<div style="color:#888;">正在另存...</div>';
+
+  try {
+    const resp = await fetch('/query/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, sql, database: currentDatabase })
+    });
+    const result = await resp.json();
+    if (result.success) {
+      msgDiv.innerHTML = '<div class="alert alert-success">已另存为新查询</div>';
+      cancelEditQuery();
+      await loadSavedQueriesRef();
+    } else {
+      msgDiv.innerHTML = `<div class="alert alert-error">保存失败: ${result.error}</div>`;
+    }
+  } catch (err) {
+    msgDiv.innerHTML = `<div class="alert alert-error">保存失败: ${err.message}</div>`;
+  }
+}
+
+// 刷新列表而不重新打开弹窗
+async function loadSavedQueriesRef() {
+  try {
+    const resp = await fetch('/query/saved');
+    const result = await resp.json();
+    savedQueriesCache = result.queries || [];
+    const list = document.getElementById('savedQueriesList');
+    if (!savedQueriesCache || savedQueriesCache.length === 0) {
+      list.innerHTML = '<p class="empty-text">暂无保存的查询</p>';
+    } else {
+      list.innerHTML = savedQueriesCache.map(q => `
+        <div class="saved-query-row">
+          <div class="saved-query-info">
+            <strong class="sq-name">${escapeHtml(q.name)}</strong>
+            <span class="sq-sql">${escapeHtml(q.sql.substring(0, 120))}${q.sql.length > 120 ? '...' : ''}</span>
+            <span class="sq-meta">${escapeHtml(q.database || '')} · ${q.createdAt ? q.createdAt.substring(0, 10) : ''}</span>
+          </div>
+          <div class="saved-query-actions">
+            <button class="btn btn-sm btn-primary" onclick="useSavedQuery('${q.id}')">执行</button>
+            <button class="btn btn-sm" onclick="editSavedQuery('${q.id}')">编辑</button>
+            <button class="btn btn-sm btn-danger" onclick="deleteSavedQuery('${q.id}')">删除</button>
+          </div>
+        </div>
+      `).join('');
+    }
+  } catch (err) {}
 }
 
 async function deleteSavedQuery(id) {
-  await fetch('/query/delete-saved', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id })
+  showConfirm('删除查询', '确定要删除这个已保存的查询吗？', async () => {
+    await fetch('/query/delete-saved', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id })
+    });
+    document.getElementById('savedQueryEditArea').style.display = 'none';
+    await loadSavedQueriesRef();
   });
-  loadSavedQueries();
+}
+
+// ==================== 新建连接（工作区内） ====================
+function showNewConnectionDialog() {
+  document.getElementById('ncMsg').innerHTML = '';
+  showModal('newConnectionModal');
+}
+
+function onNCTypeChange() {
+  const type = document.getElementById('ncDbType').value;
+  document.getElementById('ncServerFields').style.display = type === 'sqlite' ? 'none' : 'block';
+  document.getElementById('ncSqliteFields').style.display = type === 'sqlite' ? 'block' : 'none';
+  if (type === 'mysql') {
+    document.getElementById('ncPort').value = '3306';
+  } else if (type === 'postgresql') {
+    document.getElementById('ncPort').value = '5432';
+  }
+}
+
+async function doNewConnection() {
+  const type = document.getElementById('ncDbType').value;
+  const name = document.getElementById('ncName').value.trim();
+  const host = document.getElementById('ncHost').value.trim();
+  const port = document.getElementById('ncPort').value;
+  const user = document.getElementById('ncUser').value.trim();
+  const password = document.getElementById('ncPassword').value;
+  const database = document.getElementById('ncDatabase').value.trim();
+  const filePath = document.getElementById('ncFilePath') ? document.getElementById('ncFilePath').value.trim() : '';
+  const savePassword = document.getElementById('ncSavePassword').checked;
+
+  const msgDiv = document.getElementById('ncMsg');
+  msgDiv.innerHTML = '<div style="color:#888;">正在连接...</div>';
+
+  try {
+    const resp = await fetch('/connection/connect', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type, host, port, user, password, database, name, filePath, savePassword: savePassword ? 'true' : 'false' })
+    });
+    const result = await resp.json();
+    if (result.success) {
+      msgDiv.innerHTML = '<div class="alert alert-success">连接成功，正在跳转...</div>';
+      setTimeout(() => {
+        window.location.href = '/workspace';
+      }, 500);
+    } else {
+      msgDiv.innerHTML = `<div class="alert alert-error">连接失败: ${result.error}</div>`;
+    }
+  } catch (err) {
+    msgDiv.innerHTML = `<div class="alert alert-error">连接失败: ${err.message}</div>`;
+  }
 }
 
 // ==================== 导入导出 ====================

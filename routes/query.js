@@ -88,4 +88,18 @@ router.post('/delete-saved', (req, res) => {
   res.json({ success: true });
 });
 
+// 更新已保存的查询
+router.post('/update', (req, res) => {
+  const { id, name, sql } = req.body;
+  if (!id) return res.json({ success: false, error: '缺少查询ID' });
+  let queries = loadSavedQueries();
+  const idx = queries.findIndex(q => q.id === id);
+  if (idx < 0) return res.json({ success: false, error: '查询未找到' });
+  queries[idx].name = name || queries[idx].name;
+  queries[idx].sql = sql || queries[idx].sql;
+  queries[idx].updatedAt = new Date().toISOString();
+  saveQueries(queries);
+  res.json({ success: true, query: queries[idx] });
+});
+
 module.exports = router;

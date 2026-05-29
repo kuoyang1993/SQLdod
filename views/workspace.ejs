@@ -24,6 +24,22 @@
     <div class="main-area">
       <!-- 左侧边栏 -->
       <aside class="sidebar">
+        <!-- 连接信息 -->
+        <div class="sidebar-section">
+          <div class="section-header">
+            <h3>连接</h3>
+            <div class="header-actions">
+              <button class="btn-icon" onclick="showNewConnectionDialog()" title="新建连接">➕</button>
+            </div>
+          </div>
+          <div class="sidebar-conn-info">
+            <div class="conn-name-display">
+              <span class="conn-icon">🔌</span>
+              <span class="conn-name-text"><%= connection.name %> (<%= connection.type.toUpperCase() %>)</span>
+            </div>
+          </div>
+        </div>
+
         <div class="sidebar-section">
           <div class="section-header">
             <h3>数据库</h3>
@@ -325,15 +341,96 @@
     </div>
   </div>
 
-  <!-- 已保存查询列表对话框 -->
+  <!-- 已保存查询列表对话框（可编辑） -->
   <div id="savedQueriesModal" class="modal" style="display:none;">
-    <div class="modal-content modal-lg">
+    <div class="modal-content modal-xl" style="max-width:900px;">
       <div class="modal-header">
         <h3>已保存查询</h3>
         <button class="modal-close" onclick="closeModal('savedQueriesModal')">&times;</button>
       </div>
       <div class="modal-body">
         <div id="savedQueriesList"></div>
+        <!-- 编辑/另存区域 -->
+        <div id="savedQueryEditArea" style="display:none; margin-top:16px; border-top:1px solid #eee; padding-top:16px;">
+          <h4 style="margin-bottom:12px;">编辑查询</h4>
+          <input type="hidden" id="editQueryId">
+          <div class="form-group">
+            <label>查询名称</label>
+            <input type="text" id="editQueryName" class="form-control" placeholder="查询名称">
+          </div>
+          <div class="form-group">
+            <label>SQL 语句</label>
+            <textarea id="editQuerySql" class="sql-editor" style="min-height:150px; height:200px;" placeholder="SQL 语句..."></textarea>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button class="btn btn-primary" onclick="saveEditedQuery()">💾 保存（覆盖）</button>
+            <button class="btn btn-success" onclick="saveAsNewQuery()">📋 另存为新查询</button>
+            <button class="btn" onclick="cancelEditQuery()">取消</button>
+          </div>
+          <div id="editQueryMsg" style="margin-top:10px;"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 新建连接对话框 -->
+  <div id="newConnectionModal" class="modal" style="display:none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>新建连接</h3>
+        <button class="modal-close" onclick="closeModal('newConnectionModal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="newConnectionForm" onsubmit="return false;">
+          <div class="form-group">
+            <label>数据库类型</label>
+            <select id="ncDbType" class="form-control" onchange="onNCTypeChange()">
+              <option value="mysql">MySQL</option>
+              <option value="postgresql">PostgreSQL</option>
+              <option value="sqlite">SQLite</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>连接名称</label>
+            <input type="text" id="ncName" class="form-control" placeholder="可选，用于标识此连接">
+          </div>
+          <div id="ncServerFields">
+            <div class="form-group">
+              <label>主机</label>
+              <input type="text" id="ncHost" class="form-control" value="localhost" placeholder="localhost">
+            </div>
+            <div class="form-group">
+              <label>端口</label>
+              <input type="number" id="ncPort" class="form-control" value="3306">
+            </div>
+            <div class="form-group">
+              <label>用户名</label>
+              <input type="text" id="ncUser" class="form-control" placeholder="root">
+            </div>
+            <div class="form-group">
+              <label>密码</label>
+              <input type="password" id="ncPassword" class="form-control" placeholder="输入密码">
+            </div>
+            <div class="form-group">
+              <label>数据库（可选）</label>
+              <input type="text" id="ncDatabase" class="form-control" placeholder="留空则连接后选择">
+            </div>
+          </div>
+          <div id="ncSqliteFields" style="display:none;">
+            <div class="form-group">
+              <label>数据库文件路径</label>
+              <input type="text" id="ncFilePath" class="form-control" placeholder="例如: data/mydb.db（相对于项目目录）">
+            </div>
+          </div>
+          <div class="form-group checkbox-group">
+            <label class="checkbox-label">
+              <input type="checkbox" id="ncSavePassword" checked>
+              <span>保存密码（勾选后密码将保存，下次可直接连接；不勾选则每次需输入密码）</span>
+            </label>
+          </div>
+          <button type="button" class="btn btn-primary btn-block" onclick="doNewConnection()">连接数据库</button>
+        </form>
+        <div id="ncMsg" style="margin-top:10px;"></div>
       </div>
     </div>
   </div>
