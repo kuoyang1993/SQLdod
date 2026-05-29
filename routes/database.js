@@ -72,4 +72,23 @@ router.get('/tables/:database', async (req, res) => {
   }
 });
 
+// 获取所有数据库及其表（用于树状导航初始化）
+router.get('/all-with-tables', async (req, res) => {
+  try {
+    const databases = await dbManager.getDatabases();
+    const result = [];
+    for (const db of databases) {
+      try {
+        const tables = await dbManager.getTablesReadOnly(db);
+        result.push({ name: db, tables });
+      } catch (e) {
+        result.push({ name: db, tables: [], error: e.message });
+      }
+    }
+    res.json({ success: true, databases: result });
+  } catch (err) {
+    res.json({ success: false, error: err.message, databases: [] });
+  }
+});
+
 module.exports = router;

@@ -22,81 +22,64 @@
     </header>
 
     <div class="main-area">
-      <!-- 左侧边栏 -->
-      <aside class="sidebar">
-        <!-- 连接信息 -->
-        <div class="sidebar-section">
-          <div class="section-header">
-            <h3>连接</h3>
-            <div class="header-actions">
-              <button class="btn-icon" onclick="showNewConnectionDialog()" title="新建连接">➕</button>
-            </div>
-          </div>
-          <div class="sidebar-conn-info">
-            <div class="conn-name-display">
-              <span class="conn-icon">🔌</span>
-              <span class="conn-name-text"><%= connection.name %> (<%= connection.type.toUpperCase() %>)</span>
-            </div>
+      <!-- 左侧树状导航 -->
+      <aside class="sidebar" id="treeSidebar">
+        <!-- 树工具栏 -->
+        <div class="tree-toolbar">
+          <span class="tree-toolbar-title">导航</span>
+          <div class="tree-toolbar-actions">
+            <button class="btn-icon" onclick="treeExpandAll()" title="全部展开">⊞</button>
+            <button class="btn-icon" onclick="treeCollapseAll()" title="全部收起">⊟</button>
+            <button class="btn-icon" onclick="refreshTree()" title="刷新">🔄</button>
+            <button class="btn-icon" onclick="showNewConnectionDialog()" title="新建连接">➕</button>
           </div>
         </div>
 
-        <div class="sidebar-section">
-          <div class="section-header">
-            <h3>数据库</h3>
-            <div class="header-actions">
-              <button class="btn-icon" onclick="showCreateDatabase()" title="新建数据库">➕</button>
-              <button class="btn-icon" onclick="refreshDatabases()" title="刷新">🔄</button>
-            </div>
-          </div>
-          <div class="db-list" id="databaseList">
-            <% databases.forEach(db => { %>
-              <div class="db-item <%= db === currentDb ? 'active' : '' %>" onclick="selectDatabase('<%= db %>')" data-db="<%= db %>">
-                <span class="db-icon">📁</span>
-                <span class="db-name"><%= db %></span>
-                <% if (connection.type !== 'sqlite') { %>
-                  <button class="btn btn-danger btn-xs" onclick="event.stopPropagation(); confirmDropDatabase('<%= db %>')" title="删除数据库" style="margin-left:auto;">删除</button>
-                <% } %>
-              </div>
-            <% }); %>
-          </div>
+        <!-- 系统库开关 -->
+        <div class="tree-sysdb-toggle" id="sysDbToggle">
+          <label class="checkbox-label">
+            <input type="checkbox" id="showSysDb" onchange="onToggleSysDb()">
+            <span>显示系统库</span>
+          </label>
         </div>
 
-        <div class="sidebar-section">
-          <div class="section-header">
-            <h3>数据表</h3>
-            <div class="header-actions">
-              <button class="btn-icon" onclick="showCreateTable()" title="新建表">➕</button>
-              <button class="btn-icon" onclick="refreshTables()" title="刷新">🔄</button>
+        <!-- 树结构 -->
+        <div class="tree-container" id="treeContainer">
+          <!-- 连接节点 -->
+          <div class="tree-node tree-node-root" id="tree-conn-root">
+            <div class="tree-row tree-row-root active" onclick="treeToggleNode('tree-conn-root')">
+              <span class="tree-arrow tree-arrow-root expanded">▼</span>
+              <span class="tree-icon tree-icon-conn">🔌</span>
+              <span class="tree-label"><%= connection.name %></span>
+              <span class="tree-badge"><%= connection.type.toUpperCase() %></span>
             </div>
-          </div>
-          <div class="table-list" id="tableList">
-            <% tables.forEach(t => { %>
-              <div class="table-item-group">
-                <div class="table-item" onclick="selectTable('<%= t %>')" data-table="<%= t %>">
-                  <span class="table-icon">📋</span>
-                  <span class="table-name"><%= t %></span>
-                  <div class="table-actions">
-                    <button class="btn-icon-sm" onclick="event.stopPropagation(); designTable('<%= t %>')" title="设计表">✏️</button>
-                    <button class="btn-icon-sm" onclick="event.stopPropagation(); toggleTableSubmenu(event, '<%= t %>')" title="更多">⋯</button>
-                    <button class="btn-icon-sm" onclick="event.stopPropagation(); confirmDropTable('<%= t %>')" title="删除表">🗑️</button>
+            <div class="tree-children expanded" id="tree-conn-root-children">
+              <% databases.forEach(db => { %>
+                <% const isSys = ['information_schema','mysql','performance_schema','sys'].includes(db.toLowerCase()); %>
+                <div class="tree-node tree-node-db" id="tree-db-<%= db %>">
+                  <div class="tree-row tree-row-db <%= db === currentDb ? 'active' : '' %>" onclick="treeToggleDb('<%= db %>')">
+                    <span class="tree-arrow <%= isSys ? '' : 'expanded' %>">▼</span>
+                    <span class="tree-icon tree-icon-db">📁</span>
+                    <span class="tree-label"><%= db %></span>
+                    <% if (connection.type !== 'sqlite') { %>
+                      <button class="tree-db-action" onclick="event.stopPropagation(); confirmDropDatabase('<%= db %>')" title="删除数据库">🗑</button>
+                    <% } %>
+                  </div>
+                  <div class="tree-children <%= isSys ? '' : 'expanded' %>" id="tree-db-<%= db %>-children">
+                    <div class="tree-loading" id="tree-db-<%= db %>-loading">加载中...</div>
                   </div>
                 </div>
-                <div class="table-submenu" id="submenu-<%= t %>" style="display:none;">
-                  <button class="table-submenu-btn" onclick="event.stopPropagation(); showFKManager('<%= t %>')">🔗 外键管理</button>
-                  <button class="table-submenu-btn" onclick="event.stopPropagation(); showTriggerManager('<%= t %>')">⚡ 触发器管理</button>
-                </div>
-              </div>
-            <% }); %>
+              <% }); %>
+            </div>
           </div>
         </div>
 
-        <div class="sidebar-section">
-          <div class="section-header">
-            <h3>工具</h3>
-          </div>
-          <div class="sidebar-tools">
-            <button class="sidebar-tool-btn" onclick="showSaveQuery()">💾 保存查询</button>
-          </div>
+        <!-- 底部快捷操作 -->
+        <div class="tree-footer">
+          <button class="sidebar-tool-btn" onclick="showCreateTable()">📋 新建表</button>
+          <button class="sidebar-tool-btn" onclick="showCreateDatabase()">📁 新建数据库</button>
+          <button class="sidebar-tool-btn" onclick="showSaveQuery()">💾 保存查询</button>
+          <button class="sidebar-tool-btn" onclick="loadSavedQueries()">📂 已保存查询</button>
         </div>
       </aside>
 

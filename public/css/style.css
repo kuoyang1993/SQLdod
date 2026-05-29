@@ -1201,3 +1201,261 @@ select.form-control {
   gap: 6px;
   flex-shrink: 0;
 }
+
+/* ========== 树状导航 ========== */
+#treeSidebar {
+  width: 280px;
+}
+
+.tree-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: #fafafa;
+  border-bottom: 1px solid #eee;
+}
+
+.tree-toolbar-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.tree-toolbar-actions {
+  display: flex;
+  gap: 2px;
+}
+
+.tree-sysdb-toggle {
+  padding: 6px 12px;
+  border-bottom: 1px solid #f0f0f0;
+  font-size: 12px;
+}
+
+.tree-container {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* 树节点 */
+.tree-node {
+  user-select: none;
+}
+
+.tree-children {
+  overflow: hidden;
+}
+
+.tree-children:not(.expanded) {
+  display: none;
+}
+
+.tree-children.expanded {
+  display: block;
+}
+
+/* 树行 */
+.tree-row {
+  display: flex;
+  align-items: center;
+  padding: 6px 8px;
+  cursor: pointer;
+  transition: background 0.12s;
+  gap: 4px;
+  min-height: 32px;
+}
+
+.tree-row:hover {
+  background: #f0f4ff;
+}
+
+.tree-row.active {
+  background: #e8f0fe;
+  color: #1a73e8;
+  font-weight: 600;
+}
+
+/* 连接根节点 */
+.tree-row-root {
+  padding: 8px 10px;
+  font-weight: 600;
+  font-size: 13px;
+  border-bottom: 1px solid #eee;
+  gap: 6px;
+}
+
+.tree-row-root:hover {
+  background: #f0f4ff;
+}
+
+.tree-row-root.active {
+  background: #e8f0fe;
+}
+
+/* 数据库节点 */
+.tree-row-db {
+  padding: 5px 8px 5px 20px;
+  font-size: 13px;
+}
+
+/* 表节点 */
+.tree-row-table {
+  padding: 4px 8px 4px 36px;
+  font-size: 12px;
+}
+
+/* 箭头 */
+.tree-arrow {
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  color: #999;
+  flex-shrink: 0;
+  transition: transform 0.15s;
+  border-radius: 3px;
+}
+
+.tree-arrow:hover {
+  background: #e0e0e0;
+  color: #555;
+}
+
+.tree-arrow:not(.expanded) {
+  transform: rotate(-90deg);
+}
+
+.tree-arrow-leaf {
+  visibility: hidden;
+}
+
+/* 图标 */
+.tree-icon {
+  font-size: 13px;
+  flex-shrink: 0;
+  width: 18px;
+  text-align: center;
+}
+
+.tree-icon-conn {
+  font-size: 14px;
+}
+
+.tree-icon-db {
+  font-size: 13px;
+}
+
+.tree-icon-table {
+  font-size: 12px;
+}
+
+/* 标签 */
+.tree-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 连接类型徽章 */
+.tree-badge {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: #e8f0fe;
+  color: #1a73e8;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+/* 数据库操作按钮 */
+.tree-db-action {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 11px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.15s;
+  color: #e53e3e;
+}
+
+.tree-row-db:hover .tree-db-action {
+  opacity: 1;
+}
+
+.tree-db-action:hover {
+  background: #fff5f5;
+}
+
+/* 表操作按钮 */
+.tree-table-actions {
+  display: flex;
+  gap: 1px;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.tree-row-table:hover .tree-table-actions {
+  opacity: 1;
+}
+
+.tree-table-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 11px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  color: #888;
+}
+
+.tree-table-btn:hover {
+  background: #e8f0fe;
+  color: #1a73e8;
+}
+
+.tree-table-btn.tree-table-btn-danger:hover {
+  background: #fff5f5;
+  color: #e53e3e;
+}
+
+/* 加载中 */
+.tree-loading {
+  padding: 6px 8px 6px 40px;
+  font-size: 11px;
+  color: #bbb;
+  font-style: italic;
+}
+
+/* 空状态 */
+.tree-empty {
+  padding: 6px 8px 6px 40px;
+  font-size: 11px;
+  color: #ccc;
+}
+
+/* 系统库节点样式 */
+.tree-db-sys .tree-label {
+  color: #aaa;
+  font-style: italic;
+}
+
+/* 树底部操作 */
+.tree-footer {
+  border-top: 1px solid #eee;
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex-shrink: 0;
+}

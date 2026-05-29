@@ -1,5 +1,303 @@
-// ==================== 数据库操作 ====================
+ // ==================== 数据库操作 ====================
 let currentDatabase = currentDb;
+
+// ==================== 树状导航 ====================
+const SYS_DBS = ['information_schema', 'mysql', 'performance_schema', 'sys'];
+let treeShowSysDb = false;
+let treeDataCache = {}; // { dbName: [tableName, ...] }
+let treeDbExpanded = {}; // { dbName: true/false }
+
+// 系统库判断
+function isSysDb(dbName) {
+  return SYS_DBS.includes(dbName.toLowerCase());
+}
+
+// 数据库是否在树中可见
+function isDbVisible(dbName) {
+  if (treeShowSysDb) return true;
+  return !isSysDb(dbName);
+}
+
+// 初始化树
+async function initTree() {
+  // 标记当前数据库为展开
+  if (currentDatabase) {
+    treeDbExpanded[currentDatabase] = true;
+  }
+
+  // 为当前数据库和展开的非系统库加载表
+  try {
+    const resp = await fetch('/database/all-with-tables');
+    const result = await resp.json();
+    if (result.success && result.databases) {
+      result.databases.forEach(dbInfo => {
+        treeDataCache[dbInfo.name] = dbInfo.tables || [];
+        // 渲染该数据库下的表
+        renderDbTables(dbInfo.name);
+      });
+    }
+  } catch (err) {
+    // 失败时手动加载当前库的表
+    if (currentDatabase) {
+      await loadDbTablesInTree(currentDatabase);
+    }
+  }
+
+  // 初始应用系统库过滤
+  applySysDbFilter();
+}
+
+// 应用系统库过滤
+function applySysDbFilter() {
+  document.querySelectorAll('.tree-node-db').forEach(node => {
+    const dbName = node.id.replace('tree-db-', '');
+    if (isDbVisible(dbName)) {
+      node.style.display = '';
+    } else {
+      node.style.display = 'none';
+    }
+  });
+}
+
+// 切换系统库显示
+function onToggleSysDb() {
+  treeShowSysDb = document.getElementById('showSysDb').checked;
+  applySysDbFilter();
+}
+
+// 切换连接根节点
+function treeToggleNode(nodeId) {
+  const children = document.getElementById(nodeId + '-children');
+  const arrow = document.querySelector(`#${nodeId} > .tree-row .tree-arrow`);
+  if (!children || !arrow) return;
+  const isExpanded = children.classList.contains('expanded');
+  if (isExpanded) {
+    children.classList.remove('expanded');
+    arrow.classList.remove('expanded');
+  } else {
+    children.classList.add('expanded');
+    arrow.classList.add('expanded');
+  }
+}
+
+// 切换数据库节点
+async function treeToggleDb(dbName) {
+  const nodeId = 'tree-db-' + dbName;
+  const children = document.getElementById(nodeId + '-children');
+  const arrow = document.querySelector(`#${nodeId} > .tree-row .tree-arrow`);
+  if (!children || !arrow) return;
+
+  const isExpanded = children.classList.contains('expanded');
+  if (isExpanded) {
+    children.classList.remove('expanded');
+    arrow.classList.remove('expanded');
+    treeDbExpanded[dbName] = false;
+  } else {
+    children.classList.add('expanded');
+    arrow.classList.add('expanded');
+    treeDbExpanded[dbName] = true;
+    // 加载表数据
+    await loadDbTablesInTree(dbName);
+    // 选中数据库
+    await selectDatabase(dbName);
+  }
+}
+
+// 加载数据库下的表列表到树中
+async function loadDbTablesInTree(dbName) {
+  const children = document.getElementById('tree-db-' + dbName + '-children');
+  if (!children) return;
+
+  // 如果已缓存，直接渲染
+  if (treeDataCache[dbName] && treeDataCache[dbName].length >= 0) {
+    renderDbTables(dbName);
+    return;
+  }
+
+  const loading = document.getElementById('tree-db-' + dbName + '-loading');
+  if (loading) loading.style.display = '';
+
+  try {
+    const resp = await fetch(`/database/tables/${encodeURIComponent(dbName)}`);
+    const result = await resp.json();
+    if (result.success) {
+      treeDataCache[dbName] = result.tables || [];
+      renderDbTables(dbName);
+    }
+  } catch (err) {
+    treeDataCache[dbName] = [];
+    renderDbTables(dbName);
+  }
+}
+
+// 渲染数据库下的表节点
+function renderDbTables(dbName) {
+  const children = document.getElementById('tree-db-' + dbName + '-children');
+  if (!children) return;
+
+  const tables = treeDataCache[dbName] || [];
+  const loading = document.getElementById('tree-db-' + dbName + '-loading');
+  if (loading) loading.remove();
+
+  if (tables.length === 0) {
+    children.innerHTML = '<div class="tree-empty">无数据表</div>';
+    return;
+  }
+
+  children.innerHTML = tables.map(t => `
+    <div class="tree-row tree-row-table" onclick="selectTableInTree('${dbName}', '${t}')" data-table="${t}" data-db="${dbName}">
+      <span class="tree-arrow tree-arrow-leaf">▼</span>
+      <span class="tree-icon tree-icon-table">📋</span>
+      <span class="tree-label">${t}</span>
+      <span class="tree-table-actions">
+        <button class="tree-table-btn" onclick="event.stopPropagation(); designTableInTree('${dbName}', '${t}')" title="设计表">✏</button>
+        <button class="tree-table-btn" onclick="event.stopPropagation(); showFKManagerInTree('${dbName}', '${t}')" title="外键">🔗</button>
+        <button class="tree-table-btn" onclick="event.stopPropagation(); showTriggerManagerInTree('${dbName}', '${t}')" title="触发器">⚡</button>
+        <button class="tree-table-btn tree-table-btn-danger" onclick="event.stopPropagation(); confirmDropTableInTree('${dbName}', '${t}')" title="删除表">🗑</button>
+      </span>
+    </div>
+  `).join('');
+}
+
+// 树中选中表
+async function selectTableInTree(dbName, tableName) {
+  // 如果数据库不同，先切换
+  if (currentDatabase !== dbName) {
+    await selectDatabase(dbName);
+  }
+  // 高亮
+  document.querySelectorAll('.tree-row-table').forEach(el => el.classList.remove('active'));
+  const row = document.querySelector(`.tree-row-table[data-db="${dbName}"][data-table="${tableName}"]`);
+  if (row) row.classList.add('active');
+  // 选中表
+  selectedTable = tableName;
+  currentPage = 1;
+  // 获取列信息
+  try {
+    const colResp = await fetch(`/data/columns/${tableName}?database=${encodeURIComponent(dbName)}`);
+    const colResult = await colResp.json();
+    if (colResult.success) {
+      tableColumns = colResult.columns;
+      const pkCol = tableColumns.find(c => c.Key === 'PRI');
+      primaryKeyField = pkCol ? pkCol.Field : (tableColumns[0] ? tableColumns[0].Field : '');
+    }
+  } catch (err) {}
+  await loadTableData(tableName);
+}
+
+// 树中设计表
+function designTableInTree(dbName, tableName) {
+  if (currentDatabase !== dbName) {
+    selectDatabase(dbName).then(() => designTable(tableName));
+  } else {
+    designTable(tableName);
+  }
+}
+
+// 树中外键管理
+function showFKManagerInTree(dbName, tableName) {
+  if (currentDatabase !== dbName) {
+    selectDatabase(dbName).then(() => showFKManager(tableName));
+  } else {
+    showFKManager(tableName);
+  }
+}
+
+// 树中触发器管理
+function showTriggerManagerInTree(dbName, tableName) {
+  if (currentDatabase !== dbName) {
+    selectDatabase(dbName).then(() => showTriggerManager(tableName));
+  } else {
+    showTriggerManager(tableName);
+  }
+}
+
+// 树中删除表
+function confirmDropTableInTree(dbName, tableName) {
+  if (currentDatabase !== dbName) {
+    selectDatabase(dbName).then(() => confirmDropTable(tableName));
+  } else {
+    confirmDropTable(tableName);
+  }
+}
+
+// 全部展开
+function treeExpandAll() {
+  // 展开连接
+  const connChildren = document.getElementById('tree-conn-root-children');
+  const connArrow = document.querySelector('#tree-conn-root > .tree-row .tree-arrow');
+  if (connChildren) connChildren.classList.add('expanded');
+  if (connArrow) connArrow.classList.add('expanded');
+
+  // 展开所有数据库（异步加载表）
+  document.querySelectorAll('.tree-node-db').forEach(async node => {
+    const dbName = node.id.replace('tree-db-', '');
+    if (!isDbVisible(dbName)) return;
+    const children = document.getElementById('tree-db-' + dbName + '-children');
+    const arrow = node.querySelector('.tree-arrow');
+    if (children) children.classList.add('expanded');
+    if (arrow) arrow.classList.add('expanded');
+    treeDbExpanded[dbName] = true;
+    await loadDbTablesInTree(dbName);
+  });
+}
+
+// 全部收起
+function treeCollapseAll() {
+  // 收起所有数据库
+  document.querySelectorAll('.tree-node-db').forEach(node => {
+    const dbName = node.id.replace('tree-db-', '');
+    const children = document.getElementById('tree-db-' + dbName + '-children');
+    const arrow = node.querySelector('.tree-arrow');
+    if (children) children.classList.remove('expanded');
+    if (arrow) arrow.classList.remove('expanded');
+    treeDbExpanded[dbName] = false;
+  });
+}
+
+// 刷新树
+async function refreshTree() {
+  treeDataCache = {};
+  try {
+    const resp = await fetch('/database/all-with-tables');
+    const result = await resp.json();
+    if (result.success && result.databases) {
+      // 更新数据库列表（需要重新渲染整个树）
+      // 先清空旧的数据库节点
+      const connChildren = document.getElementById('tree-conn-root-children');
+      if (connChildren) {
+        // 保留加载中的占位，重新构建
+        const newChildrenHtml = result.databases.map(db => {
+          const isSys = isSysDb(db.name);
+          return `
+            <div class="tree-node tree-node-db" id="tree-db-${db.name}">
+              <div class="tree-row tree-row-db ${db.name === currentDatabase ? 'active' : ''}" onclick="treeToggleDb('${db.name}')">
+                <span class="tree-arrow ${isSys || treeDbExpanded[db.name] ? 'expanded' : ''}">▼</span>
+                <span class="tree-icon tree-icon-db">📁</span>
+                <span class="tree-label">${db.name}</span>
+                ${connType !== 'sqlite' ? `<button class="tree-db-action" onclick="event.stopPropagation(); confirmDropDatabase('${db.name}')" title="删除数据库">🗑</button>` : ''}
+              </div>
+              <div class="tree-children ${isSys || treeDbExpanded[db.name] ? 'expanded' : ''}" id="tree-db-${db.name}-children">
+                <div class="tree-loading" id="tree-db-${db.name}-loading">加载中...</div>
+              </div>
+            </div>
+          `;
+        }).join('');
+        connChildren.innerHTML = newChildrenHtml;
+      }
+      // 缓存并渲染
+      result.databases.forEach(dbInfo => {
+        treeDataCache[dbInfo.name] = dbInfo.tables || [];
+        if (treeDbExpanded[dbInfo.name]) {
+          renderDbTables(dbInfo.name);
+        }
+      });
+      applySysDbFilter();
+    }
+  } catch (err) {
+    alert('刷新失败: ' + err.message);
+  }
+}
 
 // ============ 工具函数：日期格式化（前端兜底） ============
 
@@ -69,15 +367,18 @@ async function selectDatabase(dbName) {
     const result = await resp.json();
     if (result.success) {
       currentDatabase = dbName;
-      // 更新UI高亮
-      document.querySelectorAll('.db-item').forEach(el => el.classList.remove('active'));
-      const dbItem = document.querySelector(`.db-item[data-db="${dbName}"]`);
-      if (dbItem) dbItem.classList.add('active');
-      // 刷新表列表
-      renderTableList(result.tables);
+      // 更新树高亮
+      document.querySelectorAll('.tree-row-db').forEach(el => el.classList.remove('active'));
+      const dbRow = document.querySelector(`#tree-db-${dbName} > .tree-row-db`);
+      if (dbRow) dbRow.classList.add('active');
+      // 更新树中该库的表
+      treeDataCache[dbName] = result.tables || [];
+      renderDbTables(dbName);
       // 清空数据区
       document.getElementById('dataArea').innerHTML = '<p class="placeholder-text">请选择一个数据表</p>';
       selectedTable = null;
+      // 清除表高亮
+      document.querySelectorAll('.tree-row-table').forEach(el => el.classList.remove('active'));
       // 同步更新导入导出面板的数据库选择
       const ioDbSel = document.getElementById('ioTargetDb');
       if (ioDbSel) ioDbSel.value = dbName;
@@ -91,20 +392,11 @@ async function selectDatabase(dbName) {
 }
 
 async function refreshDatabases() {
-  try {
-    const resp = await fetch('/database/list');
-    const result = await resp.json();
-    if (result.success) {
-      renderDatabaseList(result.databases);
-    }
-  } catch (err) {
-    alert('刷新数据库列表失败: ' + err.message);
-  }
+  await refreshTree();
 }
 
 async function refreshTables() {
   if (!currentDatabase) {
-    // 尝试获取当前库
     try {
       const resp = await fetch('/database/list');
       const result = await resp.json();
@@ -117,53 +409,41 @@ async function refreshTables() {
     alert('请先选择一个数据库');
     return;
   }
-  try {
-    const resp = await fetch('/connection/switch-database', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ database: currentDatabase })
-    });
-    const result = await resp.json();
-    if (result.success) {
-      renderTableList(result.tables);
-    } else {
-      alert('刷新表列表失败: ' + (result.error || '未知错误'));
-    }
-  } catch (err) {
-    alert('刷新表列表失败: ' + err.message);
-  }
+  // 刷新树中当前数据库的表
+  treeDataCache[currentDatabase] = null;
+  await loadDbTablesInTree(currentDatabase);
 }
 
 function renderDatabaseList(databases) {
-  const list = document.getElementById('databaseList');
-  list.innerHTML = databases.map(db => `
-    <div class="db-item ${db === currentDatabase ? 'active' : ''}" onclick="selectDatabase('${db}')" data-db="${db}">
-      <span class="db-icon">📁</span>
-      <span class="db-name">${db}</span>
-      ${connType !== 'sqlite' ? `<button class="btn btn-danger btn-xs" onclick="event.stopPropagation(); confirmDropDatabase('${db}')" title="删除数据库" style="margin-left:auto;">删除</button>` : ''}
-    </div>
-  `).join('');
+  // 已被树替换，保留兼容性
+  const connChildren = document.getElementById('tree-conn-root-children');
+  if (!connChildren) return;
+  const newHtml = databases.map(db => {
+    const isSys = isSysDb(db);
+    return `
+      <div class="tree-node tree-node-db" id="tree-db-${db}">
+        <div class="tree-row tree-row-db ${db === currentDatabase ? 'active' : ''}" onclick="treeToggleDb('${db}')">
+          <span class="tree-arrow ${isSys || treeDbExpanded[db] ? 'expanded' : ''}">▼</span>
+          <span class="tree-icon tree-icon-db">📁</span>
+          <span class="tree-label">${db}</span>
+          ${connType !== 'sqlite' ? `<button class="tree-db-action" onclick="event.stopPropagation(); confirmDropDatabase('${db}')" title="删除数据库">🗑</button>` : ''}
+        </div>
+        <div class="tree-children ${isSys || treeDbExpanded[db] ? 'expanded' : ''}" id="tree-db-${db}-children">
+          <div class="tree-loading" id="tree-db-${db}-loading">加载中...</div>
+        </div>
+      </div>
+    `;
+  }).join('');
+  connChildren.innerHTML = newHtml;
+  applySysDbFilter();
 }
 
 function renderTableList(tables) {
-  const list = document.getElementById('tableList');
-  list.innerHTML = tables.map(t => `
-    <div class="table-item-group">
-      <div class="table-item" onclick="selectTable('${t}')" data-table="${t}">
-        <span class="table-icon">📋</span>
-        <span class="table-name">${t}</span>
-        <div class="table-actions">
-          <button class="btn-icon-sm" onclick="event.stopPropagation(); designTable('${t}')" title="设计表">✏️</button>
-          <button class="btn-icon-sm" onclick="event.stopPropagation(); toggleTableSubmenu(event, '${t}')" title="更多">⋯</button>
-          <button class="btn-icon-sm" onclick="event.stopPropagation(); confirmDropTable('${t}')" title="删除表">🗑️</button>
-        </div>
-      </div>
-      <div class="table-submenu" id="submenu-${t}" style="display:none;">
-        <button class="table-submenu-btn" onclick="event.stopPropagation(); showFKManager('${t}')">🔗 外键管理</button>
-        <button class="table-submenu-btn" onclick="event.stopPropagation(); showTriggerManager('${t}')">⚡ 触发器管理</button>
-      </div>
-    </div>
-  `).join('');
+  // 已被树替换，保留兼容性
+  if (currentDatabase) {
+    treeDataCache[currentDatabase] = tables || [];
+    renderDbTables(currentDatabase);
+  }
 }
 
 // ==================== 创建数据库 ====================
@@ -191,7 +471,12 @@ async function createDatabase() {
     if (result.success) {
       closeModal('createDatabaseModal');
       document.getElementById('newDbName').value = '';
+      // 刷新数据库列表到树中
       renderDatabaseList(result.databases);
+      // 为新数据库预加载表
+      if (treeDbExpanded[dbName]) {
+        await loadDbTablesInTree(dbName);
+      }
     } else {
       alert('创建失败: ' + result.error);
     }
@@ -209,15 +494,16 @@ function confirmDropDatabase(dbName) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ databaseName: dbName })
       });
-      const result = await resp.json();
-      if (result.success) {
-        renderDatabaseList(result.databases);
-        if (currentDatabase === dbName) {
-          currentDatabase = '';
-          document.getElementById('dataArea').innerHTML = '<p class="placeholder-text">数据库已删除</p>';
-          document.getElementById('tableList').innerHTML = '';
-        }
-      } else {
+    const result = await resp.json();
+    if (result.success) {
+      renderDatabaseList(result.databases);
+      if (currentDatabase === dbName) {
+        currentDatabase = '';
+        document.getElementById('dataArea').innerHTML = '<p class="placeholder-text">数据库已删除</p>';
+      }
+      // 清除缓存
+      delete treeDataCache[dbName];
+    } else {
         alert('删除失败: ' + result.error);
       }
     } catch (err) {
@@ -464,7 +750,9 @@ async function createTable() {
       document.getElementById('newTableName').value = '';
       document.getElementById('columnRows').innerHTML = '';
       document.getElementById('foreignKeyRows').innerHTML = '<div class="fk-empty">暂未添加外键</div>';
-      renderTableList(result.tables);
+      // 更新树中表列表
+      treeDataCache[currentDatabase] = result.tables;
+      renderDbTables(currentDatabase);
     } else {
       alert('创建表失败: ' + result.error);
     }
@@ -482,14 +770,16 @@ function confirmDropTable(tableName) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tableName, database: currentDatabase })
       });
-      const result = await resp.json();
-      if (result.success) {
-        renderTableList(result.tables);
-        if (selectedTable === tableName) {
-          selectedTable = null;
-          document.getElementById('dataArea').innerHTML = '<p class="placeholder-text">表已删除</p>';
-        }
-      } else {
+    const result = await resp.json();
+    if (result.success) {
+      // 更新树中表列表
+      treeDataCache[currentDatabase] = result.tables;
+      renderDbTables(currentDatabase);
+      if (selectedTable === tableName) {
+        selectedTable = null;
+        document.getElementById('dataArea').innerHTML = '<p class="placeholder-text">表已删除</p>';
+      }
+    } else {
         alert('删除失败: ' + result.error);
       }
     } catch (err) {
@@ -613,7 +903,9 @@ async function saveTableDesign() {
     const result = await resp.json();
     if (result.success) {
       closeModal('designTableModal');
-      renderTableList(result.tables);
+      // 更新树中表列表
+      treeDataCache[currentDatabase] = result.tables;
+      renderDbTables(currentDatabase);
       if (selectedTable === designTableName) {
         loadTableData(selectedTable);
       }
@@ -636,10 +928,10 @@ async function selectTable(tableName) {
   selectedTable = tableName;
   currentPage = 1;
 
-  // 高亮选中
-  document.querySelectorAll('.table-item').forEach(el => el.classList.remove('selected'));
-  const item = document.querySelector(`.table-item[data-table="${tableName}"]`);
-  if (item) item.classList.add('selected');
+  // 高亮选中（树中的表节点）
+  document.querySelectorAll('.tree-row-table').forEach(el => el.classList.remove('active'));
+  const treeRow = document.querySelector(`.tree-row-table[data-db="${currentDatabase}"][data-table="${tableName}"]`);
+  if (treeRow) treeRow.classList.add('active');
 
   // 获取列信息
   try {
@@ -996,7 +1288,7 @@ function renderQueryResult(result) {
   container.innerHTML = html;
 }
 
-// SQL 编辑器快捷键
+// SQL 编辑器快捷键 & 树初始化
 document.addEventListener('DOMContentLoaded', () => {
   const sqlEditor = document.getElementById('sqlEditor');
   if (sqlEditor) {
@@ -1007,6 +1299,8 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
   }
+  // 初始化树状导航
+  initTree();
 });
 
 // ==================== 保存查询 ====================
